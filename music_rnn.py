@@ -17,88 +17,111 @@ from keras.layers.core import Dense, Activation
 from keras.layers.recurrent import LSTM
 
 
+'''
+todo:
+make class for to deal tone,and model
+
+'''
+
+from musiclib import *
+import pandas as pd
+import numpy as np
+import music21
+
+import keras
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder as le
+from keras.utils import np_utils
+from keras.models import Sequential
+from keras.layers.core import Dense, Activation
+from keras.layers.recurrent import LSTM
+
+
+def sround(v,s):
+    return v-v%s
+
+
+def get_part_fromstrm(strm,timedelta):
+
+    clname=["time","midi"]
+    df=[]
+    for tn in strm:
+
+        try:
+            if type(tn)==music21.chord.Chord:
+                midi=[tt.midi for tt in tn.pitches]
+            else:
+                midi=[tn.midi]
+            ofset=sround(tn.offset,timedelta)
+            for m in midi:
+                d=[ofset,m]
+                df.append(d)
+        except:
+            continue
+    df=pd.DataFrame(df,columns=clname)
+    return df
+
 class Music:
 
     def __init__(self):
         self.X2d=[]
         self.raw_y=[]
 
-    def read_xml(self,filename,timedelta,base=True):
-        imp=converter.parse(filename)
-        self.imp=imp
-        self.timedelta=timedelta
+    def read_xml(self,filename,resolution=2):
+        import pretty_midi as pm
 
-        df=get_part_fromstrm(imp.flat,timedelta)
-        self.df=df
-        self.base=base
-        mdf=pd.melt(df,id_vars="time",value_vars="midi")
-        X1=[]
+        #pm = pretty_midi.PrettyMIDI(resolution=960, initial_tempo=120) #pretty_midiオブジェクトを作ります
+        #instrument = pretty_midi.Instrument(0) #instrumentはトラックみたいなものです。
+        data=pm.PrettyMIDI(filename, resolution=2)
+        X2d=data.get_piano_roll(fs=8)
+        X2d=X2d.transpose()
+        for i in range(X2d.shape[0]):
+            d=X2d[i,:]
+            X2d[i,:]=d>0+1-1
 
-        time=0
-
-        smdf=mdf.sort_values(by="time")
-        self.smdf=smdf
-        raw_y=[]
-        while True:
-            tones=smdf[smdf.time==time].value
-            atones=np.array(tones)
-            #print(atones)
-            #hoge=np.array(self.chordmidi_to_chordarray(atones))
-            hoge=np.array(self.chordmidi_to_chordarray(atones,base=base))
-            raw_y.append(self.chordmidi_to_chordarray(atones,base=False))
-            X1.append(hoge[0].tolist())
-            time+=timedelta
-
-            if time>max(smdf.time):
-                break
+        return X2d
 
 
-        self.X2d=X1
-        self.raw_y=raw_y
-        return X1,raw_y
-
-    def aread_xml(self,filename,timedelta,base=True):
-        X,y=self.read_xml(filename,timedelta,base=base)
-        self.X2d.extend(X)
-        self.raw_y.extend(y)
+    def aread_xml(self,filename,timedelta=False,base=True):
+        X2d=self.read_xml(filename)
+        self.X2d.extend(X2d)
 
     def mat_to_rnnX(self,kaisu=5):
 
-        X1=self.X2d
+        X2d=self.X2d
         self.kaisu=kaisu
         y=[]
         #X=np.array([]).reshape(0,len(X1[0]))
-        C=len(X1[0])
-        X=np.zeros((len(X1),kaisu,C))
-        y=np.zeros((len(X1),self.featuredim_y))
+        C=len(X2d[0])
+        X=np.zeros((len(X2d),kaisu,C))
+        y=np.zeros((len(X2d),len(X2d[0])))
         r=0
-        for i in range(kaisu,len(X1)):
-            #X.append(hoge)
-            #X=np.r_[X,np.array(X1[(i-n):i]).reshape(1,X1[0].shape[0])]
-            X[r,:,:]=X1[(i-kaisu):i]
-            y[r,:]=self.raw_y[i]
+        for i in range(kaisu,len(X2d)):
+            X[r,:,:]=X2d[(i-kaisu):i]
+            y[r,:]=X2d[i]
             r+=1
 
         self.X=X
         self.y=y
 
-
     def saveXy(self,fname):
-        self.outfilex=fname+"rnnX"
-        self.outfiley=fname+"rnnY"
+        self.outfilex=fname+"X"
+        self.outfiley=fname+"Y"
         np.save(self.outfilex,self.X)
         np.save(self.outfiley,self.y)
 
-    def loadXy(self):
-        self.X=np.load(self.outfilex)
-        self.y=np.load(self.outfiley)
-
+    def loadXy(self,fname):
+        self.outfilex=fname+"X"
+        self.outfiley=fname+"Y"
+        self.X=np.load(self.outfilex+".npy")
+        self.y=np.load(self.outfiley+".npy")
 
 
     def chordmidi_to_chordarray(self,codemidi,base=False):
         M=40
         self.feature_dim=M+1
-        self.featuredim_y=75
+        self.featuredim_y=128
         idx=list(zip(["chord"]*M,range(M)))
         idx=pd.MultiIndex.from_tuples(idx)
 
@@ -121,38 +144,75 @@ class Music:
         cd.ix[0,"base"]=base
         return cd
 
+    #def chordmidi_to_chordarray(codemidi,base=False):
 
-    def fit(self):
+
+    def fit(self,epoch):
         from keras.optimizers import RMSprop
+        from keras.callbacks import EarlyStopping
         X,y=self.X,self.y
         #y=np.expand_dims(y, -2)
         out_neurons = y.shape[1]
+        print("shape of X",X.shape)
         model = Sequential()
-        model.add(LSTM(10,input_length=X.shape[1],input_dim=X.shape[2],init="zero",
-                      activation="relu",stateful=False,go_backwards=False))
+        model.add(LSTM(20,input_shape=(X.shape[1],X.shape[2])))
+                        #batch_input_shape=(1,X.shape[1],X.shape[2])))
         #model.add(LSTM(hidden_neurons,input_shape=(None,None)))
-
-        #model.add(Dense(10,init="zero"))
-        #model.add(Activation("relu"))
+        #model.add(LSTM(10,input_length=X.shape[1],init="zero",
+        #            activation="relu",stateful=False,go_backwards=False))
+        #model.add(Dense(20))
+        model.add(Activation("relu"))
+        model.add(Dense(10))
+        model.add(Activation("relu"))
         #model.add(Activation('sigmoid'))
         #model.add(Dense(10))
         #model.add(Activation("relu"))
-        model.add(Dense(out_neurons,init="zero"))
+        #model.add(Dense(out_neurons,init="zero"))
+        model.add(Dense(out_neurons))
         model.add(Activation('sigmoid'))
         #model.add(Activation('softmax'))
-
-        optimizer = RMSprop(lr=0.3)
-        model.compile(loss='binary_crossentropy', optimizer="rmsprop")
-        #model.compile(loss='categorical_crossentropy', optimizer=optimizer)
+        #optimizer = RMSprop(lr=0.1)
+        model.compile(loss='binary_crossentropy', optimizer="adam",metrics=['accuracy'],shuffle=True)
+        #model.compile(loss='categorical_crossentropy', optimizer=optimizer,metrics=['accuracy'])
         #model.compile(loss='sparse_categorical_crossentropy', optimizer=optimizer)
         #model.compile(loss='mean_squared_error',optimizer="adam")
-        model.fit(X,y, nb_epoch=100, validation_split=0.2)
-        #model.fit(X,y, nb_epoch=50)
-
-        json_string = model.to_json()
+        #early_stopping = EarlyStopping(monitor='accuracy', patience=2)
+        self.history=model.fit(X,y, nb_epoch=epoch, validation_split=0.2,batch_size=30)#,callbacks=[early_stopping])
+        #json_string = model.to_json()
         #open('addrib.json', 'w').write(json_string)
         #model.save_weights("addrib_weight.h5")
         self.model=model
+
+    def fit_auto_encorder(self,epoch):
+        from keras.optimizers import RMSprop
+        from keras.callbacks import EarlyStopping
+        from keras.models import Model
+        from keras.layers import Input, Convolution2D
+
+        X,y=self.X,self.y
+
+        a = Input(shape=(1,X.shape[1],X.shape[2]))
+        x=LSTM(20,input_length=X.shape[1],input_dim=X.shape[2])
+                        #batch_input_shape=(1,X.shape[1],X.shape[2])))
+        #model.add(LSTM(hidden_neurons,input_shape=(None,None)))
+        #model.add(LSTM(10,input_length=X.shape[1],init="zero",
+        #            activation="relu",stateful=False,go_backwards=False))
+        #model.add(Dense(20))
+        x=Dense(20,activation="relu")(x)
+        decoded=Dense(X.shape[2],activation="sigmoid")(x)
+        ae = Model(a,decoded)
+        ae.compile(loss='binary_crossentropy', optimizer="adam",metrics=['accuracy'],shuffle=True)
+        #model.compile(loss='categorical_crossentropy', optimizer=optimizer,metrics=['accuracy'])
+        #model.compile(loss='sparse_categorical_crossentropy', optimizer=optimizer)
+        #model.compile(loss='mean_squared_error',optimizer="adam")
+        #early_stopping = EarlyStopping(monitor='accuracy', patience=2)
+        self.history=ae.fit(X,X, nb_epoch=epoch, validation_split=0.2,batch_size=20)#,callbacks=[early_stopping])
+        #json_string = model.to_json()
+        #open('addrib.json', 'w').write(json_string)
+        #model.save_weights("addrib_weight.h5")
+        self.hidden=x
+        self.model=model
+
 
 
     def read_model(self):
@@ -164,25 +224,28 @@ class Music:
             print(d)
 
 
+
+
+
 def read_learn():
 
     msc=Music()
-    fnames=["/Users/iijimasatoshi/Downloads/1079-03.mid","/Users/iijimasatoshi/Downloads/1079-02.mid","/Users/iijimasatoshi/Downloads/bwv773.mid","/Users/iijimasatoshi/Downloads/Prelude2.mid"]
+    fnames=["/Users/iijimasatoshi/Downloads/Prelude2.mid"]
 
-    td=0.25
-    kaisu=3
+    kaisu=5
     base=True
     for f in fnames:
         print(len(msc.X2d))
-        msc.aread_xml(f,timedelta=td,base=base)
+        msc.aread_xml(f,base=base)
 
-    #msc.aread_xml(fnames[2],timedelta=td,base=base)
     msc.mat_to_rnnX(kaisu=kaisu)
     #msc.saveXy(fnames[0])
 
     print("made mat")
-    #msc.loadXy()
-msc.fit()
+
+    return msc
+
+
 
 def generate():
     X=msc.X
@@ -221,7 +284,9 @@ def generate():
         Xgen.append(chord_num)
     return Xgen
 
-msc=read_learn()
-Xgen=generate()
-print(Xgen)
-#np.sum(prd)
+if __name__=="main":
+    msc=read_learn()
+    msc.fit(10)
+    #Xgen=generate()
+    #print(Xgen)
+    #np.sum(prd)
