@@ -1,4 +1,7 @@
-def X2d_to_stream(X,base=True):
+import music21
+import numpy as np
+
+def X2d_to_stream(X,base=False):
     strm=music21.stream.Stream()
 
     for x in X:
@@ -6,6 +9,19 @@ def X2d_to_stream(X,base=True):
         strm.append(music21.chord.Chord(s))
     return strm
 
+def X2d_to_midinum(X,text=False,base=False):
+
+    res=[]
+    for x in X:
+        s=onehot_to_midin(np.array(x),base=base)
+        hoge=[]
+        for ss in s:
+            hoge.append(ss)
+        if text:
+            res.append(midinumber_to_text(hoge))
+        else:
+            res.append(hoge)
+    return res
 
 def getX_midinumber(X):
     for x in X:

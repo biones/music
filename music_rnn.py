@@ -1,24 +1,5 @@
 '''
 todo:
-build model
-0.25 beat is 1step by ltsm
-'''
-
-from musiclib import *
-from music21 import *
-
-import keras
-import numpy as np
-import pandas as pd
-from sklearn.preprocessing import LabelEncoder as le
-from keras.utils import np_utils
-from keras.models import Sequential
-from keras.layers.core import Dense, Activation
-from keras.layers.recurrent import LSTM
-
-
-'''
-todo:
 make class for to deal tone,and model
 
 '''
@@ -67,32 +48,35 @@ class Music:
     def __init__(self):
         self.X2d=[]
         self.raw_y=[]
+        self.base=False
 
-    def read_xml(self,filename,resolution=2):
+    def read_xml(self,filename,freq=4):
         import pretty_midi as pm
-
+        '''
+        freqは1beat=1
+        '''
         #pm = pretty_midi.PrettyMIDI(resolution=960, initial_tempo=120) #pretty_midiオブジェクトを作ります
         #instrument = pretty_midi.Instrument(0) #instrumentはトラックみたいなものです。
-        data=pm.PrettyMIDI(filename, resolution=2)
-        X2d=data.get_piano_roll(fs=8)
+        data=pm.PrettyMIDI(filename)
+        X2d=data.get_piano_roll(fs=freq)
         X2d=X2d.transpose()
+
         for i in range(X2d.shape[0]):
             d=X2d[i,:]
             X2d[i,:]=d>0+1-1
-
         return X2d
 
 
-    def aread_xml(self,filename,timedelta=False,base=True):
-        X2d=self.read_xml(filename)
-        self.X2d.extend(X2d)
+    def aread_xml(self,filename,freq=4,timedelta=False,base=False):
+        X2d=self.read_xml(filename,freq=freq)
+        if len(X2d)>0:
+            self.X2d.extend(X2d)
 
     def mat_to_rnnX(self,kaisu=5):
 
         X2d=self.X2d
         self.kaisu=kaisu
         y=[]
-        #X=np.array([]).reshape(0,len(X1[0]))
         C=len(X2d[0])
         X=np.zeros((len(X2d),kaisu,C))
         y=np.zeros((len(X2d),len(X2d[0])))
@@ -165,8 +149,7 @@ class Music:
         model.add(Dense(10))
         model.add(Activation("relu"))
         #model.add(Activation('sigmoid'))
-        #model.add(Dense(10))
-        #model.add(Activation("relu"))
+        model.add(Dense(20,activation="relu"))
         #model.add(Dense(out_neurons,init="zero"))
         model.add(Dense(out_neurons))
         model.add(Activation('sigmoid'))
@@ -177,7 +160,7 @@ class Music:
         #model.compile(loss='sparse_categorical_crossentropy', optimizer=optimizer)
         #model.compile(loss='mean_squared_error',optimizer="adam")
         #early_stopping = EarlyStopping(monitor='accuracy', patience=2)
-        self.history=model.fit(X,y, nb_epoch=epoch, validation_split=0.2,batch_size=30)#,callbacks=[early_stopping])
+        self.history=model.fit(X,y, nb_epoch=epoch, validation_split=0.5,batch_size=20)#,callbacks=[early_stopping])
         #json_string = model.to_json()
         #open('addrib.json', 'w').write(json_string)
         #model.save_weights("addrib_weight.h5")
@@ -219,7 +202,12 @@ class Music:
         self.model = model_from_json(open('addrib.json.json').read())
         self.model.load_weights('addrib_weight.h5')
 
+    def X2d_text(self):
+        import musiclib
+        return musiclib.X2d_to_midinum(msc.X2d,text=True)
+
     def print_X2d(self):
+
         for d in self.X2d:
             print(d)
 
