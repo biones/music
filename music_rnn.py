@@ -4,9 +4,7 @@ make class for to deal tone,and model
 
 '''
 
-from musiclib import *
-import pandas as pd
-import numpy as np
+import musiclib
 import music21
 
 import keras
@@ -58,7 +56,9 @@ class Music:
         #pm = pretty_midi.PrettyMIDI(resolution=960, initial_tempo=120) #pretty_midiオブジェクトを作ります
         #instrument = pretty_midi.Instrument(0) #instrumentはトラックみたいなものです。
         data=pm.PrettyMIDI(filename)
+        print("readxml")
         X2d=data.get_piano_roll(fs=freq)
+        print(X2d.shape)
         X2d=X2d.transpose()
 
         for i in range(X2d.shape[0]):
@@ -68,6 +68,7 @@ class Music:
 
 
     def aread_xml(self,filename,freq=4,timedelta=False,base=False):
+        print("aread")
         X2d=self.read_xml(filename,freq=freq)
         if len(X2d)>0:
             self.X2d.extend(X2d)
@@ -135,16 +136,21 @@ class Music:
         from keras.optimizers import RMSprop
         from keras.callbacks import EarlyStopping
         X,y=self.X,self.y
-        #y=np.expand_dims(y, -2)
         out_neurons = y.shape[1]
         print("shape of X",X.shape)
         model = Sequential()
-        model.add(LSTM(20,input_shape=(X.shape[1],X.shape[2])))
-                        #batch_input_shape=(1,X.shape[1],X.shape[2])))
-        #model.add(LSTM(hidden_neurons,input_shape=(None,None)))
+        from keras.regularizers import l1, activity_l1
+        import tensorflow as tf
+        tf.python.control_flow_ops = tf
+
+        ll=LSTM(20,W_regularizer=l1(1),input_shape=(X.shape[1],X.shape[2]),activation="relu")
+        model.add(ll)
+
+        #model.add(ll2)
+        #                #batch_input_shape=(1,X.shape[1],X.shape[2])))
         #model.add(LSTM(10,input_length=X.shape[1],init="zero",
         #            activation="relu",stateful=False,go_backwards=False))
-        #model.add(Dense(20))
+        '''
         model.add(Activation("relu"))
         model.add(Dense(10))
         model.add(Activation("relu"))
@@ -153,14 +159,21 @@ class Music:
         #model.add(Dense(out_neurons,init="zero"))
         model.add(Dense(out_neurons))
         model.add(Activation('sigmoid'))
-        #model.add(Activation('softmax'))
+        '''
+
+
+        model.add(Dense(10,W_regularizer=l1(5),activation="relu",init="zero"))
+        model.add(Dense(10,W_regularizer=l1(5),activation="relu",init="zero"))
+        model.add(Dense(4,W_regularizer=l1(5),activation='sigmoid',init="zero"))
+        model.add(Dense(out_neurons,activation='sigmoid',init="zero"))
         #optimizer = RMSprop(lr=0.1)
-        model.compile(loss='binary_crossentropy', optimizer="adam",metrics=['accuracy'],shuffle=True)
+        #model.compile(loss='binary_crossentropy', optimizer="adam",metrics=['accuracy'],shuffle=True)
+        model.compile(loss='mean_squared_error', optimizer="adam",metrics=['mean_absolute_error'],shuffle=True)
         #model.compile(loss='categorical_crossentropy', optimizer=optimizer,metrics=['accuracy'])
         #model.compile(loss='sparse_categorical_crossentropy', optimizer=optimizer)
         #model.compile(loss='mean_squared_error',optimizer="adam")
         #early_stopping = EarlyStopping(monitor='accuracy', patience=2)
-        self.history=model.fit(X,y, nb_epoch=epoch, validation_split=0.5,batch_size=20)#,callbacks=[early_stopping])
+        self.history=model.fit(X,y, nb_epoch=epoch, validation_split=0.3,batch_size=30)#,callbacks=[early_stopping])
         #json_string = model.to_json()
         #open('addrib.json', 'w').write(json_string)
         #model.save_weights("addrib_weight.h5")

@@ -1,12 +1,41 @@
 import music21
 import numpy as np
 
-def X2d_to_stream(X,base=False):
-    strm=music21.stream.Stream()
+bkey=(1,3,6,8,10)
+def is_blackkey(tone):
+    ptone=tone%12
+    if ptone in bkey:
+        return True
+    return False
 
+def X2d_to_stream(X,minduration=0.25,base=False):
+    strm=music21.stream.Stream()
+    bchord=[]
     for x in X:
         s=onehot_to_midin(np.array(x),base=base)
-        strm.append(music21.chord.Chord(s))
+        if s!=bchord:
+            strm.append(music21.chord.Chord(s,duration=music21.duration.Duration(minduration)))
+        else:
+            strm.append(music21.note.Rest(duration=music21.duration.Duration(minduration)))
+            s="rest"
+        bchord=s
+    return strm
+
+def midinum_to_stream(X,minduration=0.25,base=False):
+    strm=music21.stream.Stream()
+    bchord=[]
+    for x in X:
+        s=[]
+        for xx in x:
+            s.append(int(xx))
+
+
+        if s!=bchord:
+            strm.append(music21.chord.Chord(s,duration=music21.duration.Duration(minduration)))
+        else:
+            strm.append(music21.note.Rest(duration=music21.duration.Duration(minduration)))
+            s="rest"
+        bchord=s
     return strm
 
 def X2d_to_midinum(X,text=False,base=False):
